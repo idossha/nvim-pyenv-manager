@@ -11,13 +11,13 @@ vim.g.loaded_pyenv_manager = 1
 
 -- Set up default commands that don't require the plugin to be initialized
 vim.api.nvim_create_user_command("PyenvSelect", function()
-  require("pyenv-manager").select_env()
+  require("pyenv_manager").select_env()
 end, { desc = "Select Python environment" })
 
 vim.api.nvim_create_user_command("PyenvDeactivate", function()
-  require("pyenv-manager").deactivate_env()
+  require("pyenv_manager").deactivate_env()
 end, { desc = "Deactivate Python environment" })
 
 vim.api.nvim_create_user_command("PyenvInfo", function()
-  require("pyenv-manager").show_info()
+  require("pyenv_manager").show_info()
 end, { desc = "Show Python environment info" })

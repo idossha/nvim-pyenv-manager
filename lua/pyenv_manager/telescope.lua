@@ -1,4 +1,4 @@
--- Telescope integration for pyenv-manager
+-- Telescope integration for pyenv_manager
 local M = {}
 
 local has_telescope, telescope = pcall(require, "telescope")
@@ -8,8 +8,8 @@ local conf = require("telescope.config").values
 local actions = require("telescope.actions")
 local action_state = require("telescope.actions.state")
 
-local environments = require("pyenv-manager.environments")
-local config = require("pyenv-manager.config")
+local environments = require("pyenv_manager.environments")
+local config = require("pyenv_manager.config")
 
 -- Show environment picker with Telescope
 function M.show_picker(callback)

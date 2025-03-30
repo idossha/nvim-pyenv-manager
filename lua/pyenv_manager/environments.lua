@@ -1,7 +1,7 @@
--- Environment detection and management module for pyenv-manager
+-- Environment detection and management module for pyenv_manager
 local M = {}
 
-local config = require("pyenv-manager.config")
+local config = require("pyenv_manager.config")
 
 -- Find all virtual environments
 function M.find_venvs()

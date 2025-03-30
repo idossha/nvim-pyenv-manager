@@ -1,10 +1,10 @@
--- Main module for pyenv-manager
+-- Main module for pyenv_manager
 local M = {}
 
 -- Module imports
-local config = require("pyenv-manager.config")
-local environments = require("pyenv-manager.environments")
-local telescope_integration = require("pyenv-manager.telescope")
+local config = require("pyenv_manager.config")
+local environments = require("pyenv_manager.environments")
+local telescope_integration = require("pyenv_manager.telescope")
 
 -- State variables
 M.current_env = nil

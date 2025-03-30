@@ -1,7 +1,7 @@
--- Lualine integration for pyenv-manager
+-- Lualine integration for pyenv_manager
 local M = {}
 
-local config = require("pyenv-manager.config")
+local config = require("pyenv_manager.config")
 
 -- The component function
 function M.env_component()

@@ -1,4 +1,4 @@
--- Configuration module for pyenv-manager
+-- Configuration module for pyenv_manager
 local M = {}
 
 -- Default configuration
