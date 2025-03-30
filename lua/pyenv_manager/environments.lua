@@ -251,7 +251,7 @@ function M.restart_python_lsp(python_path)
         local bufname = vim.api.nvim_buf_get_name(bufnr)
         if bufname:match("%.py$") then
           -- Request diagnostics for this buffer
-          if vim.lsp.buf.server_ready() then
+          if vim.lsp.buf_request_sync ~= nil then
             vim.lsp.buf.document_highlight()
             vim.diagnostic.show()
           end
