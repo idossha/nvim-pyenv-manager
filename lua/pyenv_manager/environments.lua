@@ -142,7 +142,6 @@ function M.detect_active()
   return nil
 end
 
--- Restart Python LSP servers
 function M.restart_python_lsp(python_path)
   -- Check if nvim-lspconfig is available
   local has_lspconfig, lspconfig = pcall(require, "lspconfig")
@@ -150,72 +149,103 @@ function M.restart_python_lsp(python_path)
     return
   end
   
-  -- Get a list of running LSP clients
-  local clients = vim.lsp.get_active_clients()
-  local python_servers = {"pyright", "pylsp", "jedi_language_server", "ruff_lsp"}
-  local restarted = false
+  -- Check if pyright is available
+  local has_pyright = pcall(require, "lspconfig.pyright")
+  if not has_pyright then
+    vim.notify("Pyright LSP not found. Please install it for better Python integration.", vim.log.levels.WARN)
+    return
+  end
   
-  -- Update LSP settings and restart servers
-  for _, server_name in ipairs(python_servers) do
-    -- Check if this server module exists
-    local has_server = pcall(require, "lspconfig." .. server_name)
-    if has_server then
-      local current_config = lspconfig[server_name].manager.config or {}
-      local new_config = vim.deepcopy(current_config)
-      
-      -- Update Python path in server settings
-      if server_name == "pyright" then
-        -- For pyright
-        if not new_config.settings then new_config.settings = {} end
-        if not new_config.settings.python then new_config.settings.python = {} end
-        new_config.settings.python.pythonPath = python_path
-        
-        -- Also update interpreter path for enhanced diagnostics
-        if not new_config.settings.python.analysis then new_config.settings.python.analysis = {} end
-        new_config.settings.python.analysis.extraPaths = {
-          vim.fn.fnamemodify(python_path, ":h:h") .. "/lib/site-packages"
-        }
-      elseif server_name == "pylsp" then
-        -- For python-lsp-server
-        if not new_config.settings then new_config.settings = {} end
-        if not new_config.settings.pylsp then new_config.settings.pylsp = {} end
-        if not new_config.settings.pylsp.plugins then new_config.settings.pylsp.plugins = {} end
-        if not new_config.settings.pylsp.configurationSources then 
-          new_config.settings.pylsp.configurationSources = {} 
-        end
-        
-        new_config.cmd = { python_path, "-m", "pylsp" }
-      elseif server_name == "jedi_language_server" then
-        -- For jedi-language-server
-        if not new_config.init_options then new_config.init_options = {} end
-        new_config.init_options.pythonPath = python_path
-        new_config.cmd = { python_path, "-m", "jedi_language_server" }
-      elseif server_name == "ruff_lsp" then
-        -- For ruff-lsp
-        if not new_config.cmd then
-          new_config.cmd = { python_path, "-m", "ruff_lsp" }
-        else
-          new_config.cmd[1] = python_path
-        end
-      end
-      
-      -- Apply the updated config
-      lspconfig[server_name].setup(new_config)
-      
-      -- Now restart any running instances of this server
-      for _, client in ipairs(clients) do
-        if client.name == server_name then
-          vim.cmd("LspRestart " .. client.id)
-          restarted = true
-        end
-      end
+  -- Find site-packages path for the selected Python environment
+  local site_packages_path
+  if vim.fn.has("win32") == 1 then
+    -- Windows path (Library/site-packages)
+    site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/Lib/site-packages"
+  else
+    -- Unix path (lib/pythonX.Y/site-packages)
+    local base_path = vim.fn.fnamemodify(python_path, ":h:h")
+    local pattern = base_path .. "/lib/python3*/site-packages"
+    local paths = vim.fn.glob(pattern, false, true)
+    
+    if #paths > 0 then
+      site_packages_path = paths[1]
+    else
+      -- Fallback to a simple path structure
+      site_packages_path = base_path .. "/lib/site-packages"
     end
   end
   
-  -- Let user know we've updated the LSP if any were restarted
-  if restarted then
-    vim.notify("Python LSP servers updated to use: " .. python_path, vim.log.levels.INFO)
+  -- Ensure python_path is executable
+  if vim.fn.executable(python_path) ~= 1 then
+    vim.notify("Python path is not executable: " .. python_path, vim.log.levels.ERROR)
+    return
   end
+
+  -- Stop all Python LSP servers
+  local clients = vim.lsp.get_active_clients()
+  for _, client in ipairs(clients) do
+    if client.name == "pyright" then
+      vim.lsp.stop_client(client.id, true)
+    end
+  end
+  
+  -- Update pyright configuration
+  lspconfig.pyright.setup({
+    capabilities = (function()
+      -- Try to reuse existing capabilities if available
+      local has_cmp, cmp_nvim_lsp = pcall(require, "cmp_nvim_lsp")
+      if has_cmp then
+        return cmp_nvim_lsp.default_capabilities()
+      else
+        return vim.lsp.protocol.make_client_capabilities()
+      end
+    end)(),
+    on_attach = function(client, bufnr)
+      -- Preserve existing on_attach if we can find it in the current config
+      local current_config = lspconfig.pyright.manager and lspconfig.pyright.manager.config
+      if current_config and current_config.on_attach then
+        current_config.on_attach(client, bufnr)
+      end
+    end,
+    settings = {
+      python = {
+        pythonPath = python_path,
+        analysis = {
+          autoSearchPaths = true,
+          diagnosticMode = "workspace", -- Use workspace to analyze all files
+          useLibraryCodeForTypes = true,
+          typeCheckingMode = "basic", -- Enable type checking
+          extraPaths = { site_packages_path }
+        }
+      }
+    }
+  })
+  
+  -- Force a reload of all Python files
+  vim.defer_fn(function()
+    -- Get all buffer numbers
+    local buffers = vim.api.nvim_list_bufs()
+    for _, bufnr in ipairs(buffers) do
+      -- Check if the buffer is loaded and is a Python file
+      if vim.api.nvim_buf_is_loaded(bufnr) then
+        local bufname = vim.api.nvim_buf_get_name(bufnr)
+        if bufname:match("%.py$") then
+          -- Force reload the buffer to update diagnostics
+          local winnr = vim.fn.bufwinnr(bufnr)
+          if winnr > 0 then
+            -- Only reload visible buffers to avoid messing with the layout
+            vim.cmd(winnr .. "wincmd w")
+            vim.cmd("edit!")
+            -- Return to previous window
+            vim.cmd("wincmd p")
+          end
+        end
+      end
+    end
+    
+    -- Notify user that LSP has been restarted
+    vim.notify("Python LSP restarted with: " .. python_path, vim.log.levels.INFO)
+  end, 1000) -- Wait 1 second for LSP to initialize
 end
 
 -- Activate an environment
