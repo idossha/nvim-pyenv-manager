@@ -144,84 +144,104 @@ end
 
 function M.restart_python_lsp(python_path)
   -- Check if nvim-lspconfig is available
-  local has_lspconfig, lspconfig = pcall(require, "lspconfig")
+  local has_lspconfig = pcall(require, "lspconfig")
   if not has_lspconfig then
     return
   end
   
-  -- Check if pyright is available
-  local has_pyright = pcall(require, "lspconfig.pyright")
-  if not has_pyright then
-    vim.notify("Pyright LSP not found. Please install it for better Python integration.", vim.log.levels.WARN)
-    return
-  end
+  -- Get a list of running LSP clients
+  local clients = vim.lsp.get_active_clients or vim.lsp.get_clients
+  local python_servers = {"pyright", "pylsp", "jedi_language_server", "ruff_lsp"}
   
-  -- Find site-packages path for the selected Python environment
-  local site_packages_path
-  if vim.fn.has("win32") == 1 then
-    -- Windows path (Library/site-packages)
-    site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/Lib/site-packages"
-  else
-    -- Unix path (lib/pythonX.Y/site-packages)
-    local base_path = vim.fn.fnamemodify(python_path, ":h:h")
-    local pattern = base_path .. "/lib/python3*/site-packages"
-    local paths = vim.fn.glob(pattern, false, true)
-    
-    if #paths > 0 then
-      site_packages_path = paths[1]
-    else
-      -- Fallback to a simple path structure
-      site_packages_path = base_path .. "/lib/site-packages"
-    end
-  end
-  
-  -- Ensure python_path is executable
-  if vim.fn.executable(python_path) ~= 1 then
-    vim.notify("Python path is not executable: " .. python_path, vim.log.levels.ERROR)
-    return
-  end
-
-  -- Stop all Python LSP servers
-  local clients = vim.lsp.get_active_clients()
-  for _, client in ipairs(clients) do
-    if client.name == "pyright" then
-      vim.lsp.stop_client(client.id, true)
-    end
-  end
-  
-  -- Update pyright configuration
-  lspconfig.pyright.setup({
-    capabilities = (function()
-      -- Try to reuse existing capabilities if available
-      local has_cmp, cmp_nvim_lsp = pcall(require, "cmp_nvim_lsp")
-      if has_cmp then
-        return cmp_nvim_lsp.default_capabilities()
+  -- Update LSP settings for each Python server
+  for _, server_name in ipairs(python_servers) do
+    -- Execute for each active client of this type
+    for _, client in ipairs(clients({ name = server_name })) do
+      if not client then
+        goto continue
+      end
+      
+      vim.notify("Updating " .. server_name .. " to use: " .. python_path, vim.log.levels.INFO)
+      
+      -- Update the client settings
+      if client.settings then
+        if server_name == "pyright" then
+          client.settings = vim.tbl_deep_extend('force', client.settings, { 
+            python = { 
+              pythonPath = python_path,
+              analysis = {
+                autoSearchPaths = true,
+                diagnosticMode = "workspace",
+                useLibraryCodeForTypes = true,
+                typeCheckingMode = "basic",
+                reportMissingImports = true,
+                reportMissingModuleSource = true,
+              }
+            } 
+          })
+        elseif server_name == "pylsp" then
+          client.settings = vim.tbl_deep_extend('force', client.settings, {
+            pylsp = {
+              plugins = {
+                jedi = {
+                  environment = python_path,
+                },
+              },
+            }
+          })
+        elseif server_name == "jedi_language_server" then
+          client.settings = vim.tbl_deep_extend('force', client.settings, {
+            jedi = {
+              environment = python_path,
+            }
+          })
+        end
       else
-        return vim.lsp.protocol.make_client_capabilities()
+        -- Some clients store settings in config.settings instead
+        if not client.config then client.config = {} end
+        if not client.config.settings then client.config.settings = {} end
+        
+        if server_name == "pyright" then
+          client.config.settings = vim.tbl_deep_extend('force', client.config.settings, { 
+            python = { 
+              pythonPath = python_path,
+              analysis = {
+                autoSearchPaths = true,
+                diagnosticMode = "workspace",
+                useLibraryCodeForTypes = true,
+                typeCheckingMode = "basic",
+                reportMissingImports = true,
+                reportMissingModuleSource = true,
+              }
+            } 
+          })
+        elseif server_name == "pylsp" then
+          client.config.settings = vim.tbl_deep_extend('force', client.config.settings, {
+            pylsp = {
+              plugins = {
+                jedi = {
+                  environment = python_path,
+                },
+              },
+            }
+          })
+        elseif server_name == "jedi_language_server" then
+          client.config.settings = vim.tbl_deep_extend('force', client.config.settings, {
+            jedi = {
+              environment = python_path,
+            }
+          })
+        end
       end
-    end)(),
-    on_attach = function(client, bufnr)
-      -- Preserve existing on_attach if we can find it in the current config
-      local current_config = lspconfig.pyright.manager and lspconfig.pyright.manager.config
-      if current_config and current_config.on_attach then
-        current_config.on_attach(client, bufnr)
-      end
-    end,
-    settings = {
-      python = {
-        pythonPath = python_path,
-        analysis = {
-          autoSearchPaths = true,
-          diagnosticMode = "workspace", -- Use workspace to analyze all files
-          useLibraryCodeForTypes = true,
-          typeCheckingMode = "basic", -- Enable type checking
-          extraPaths = { site_packages_path }
-        }
-      }
-    }
-  })
+      
+      -- Notify the client of configuration changes
+      client.notify('workspace/didChangeConfiguration', { settings = nil })
+      
+      ::continue::
+    end
+  end
   
-  -- Force a reload of all Python files
+  -- Force reload of all Python files
   vim.defer_fn(function()
     -- Get all buffer numbers
     local buffers = vim.api.nvim_list_bufs()
@@ -230,22 +250,15 @@ function M.restart_python_lsp(python_path)
       if vim.api.nvim_buf_is_loaded(bufnr) then
         local bufname = vim.api.nvim_buf_get_name(bufnr)
         if bufname:match("%.py$") then
-          -- Force reload the buffer to update diagnostics
-          local winnr = vim.fn.bufwinnr(bufnr)
-          if winnr > 0 then
-            -- Only reload visible buffers to avoid messing with the layout
-            vim.cmd(winnr .. "wincmd w")
-            vim.cmd("edit!")
-            -- Return to previous window
-            vim.cmd("wincmd p")
+          -- Request diagnostics for this buffer
+          if vim.lsp.buf.server_ready() then
+            vim.lsp.buf.document_highlight()
+            vim.diagnostic.show()
           end
         end
       end
     end
-    
-    -- Notify user that LSP has been restarted
-    vim.notify("Python LSP restarted with: " .. python_path, vim.log.levels.INFO)
-  end, 1000) -- Wait 1 second for LSP to initialize
+  end, 1000) -- Wait 1 second for LSP to process configuration changes
 end
 
 -- Activate an environment
