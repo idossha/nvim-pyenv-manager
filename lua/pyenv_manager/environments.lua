@@ -142,6 +142,82 @@ function M.detect_active()
   return nil
 end
 
+-- Restart Python LSP servers
+function M.restart_python_lsp(python_path)
+  -- Check if nvim-lspconfig is available
+  local has_lspconfig, lspconfig = pcall(require, "lspconfig")
+  if not has_lspconfig then
+    return
+  end
+  
+  -- Get a list of running LSP clients
+  local clients = vim.lsp.get_active_clients()
+  local python_servers = {"pyright", "pylsp", "jedi_language_server", "ruff_lsp"}
+  local restarted = false
+  
+  -- Update LSP settings and restart servers
+  for _, server_name in ipairs(python_servers) do
+    -- Check if this server module exists
+    local has_server = pcall(require, "lspconfig." .. server_name)
+    if has_server then
+      local current_config = lspconfig[server_name].manager.config or {}
+      local new_config = vim.deepcopy(current_config)
+      
+      -- Update Python path in server settings
+      if server_name == "pyright" then
+        -- For pyright
+        if not new_config.settings then new_config.settings = {} end
+        if not new_config.settings.python then new_config.settings.python = {} end
+        new_config.settings.python.pythonPath = python_path
+        
+        -- Also update interpreter path for enhanced diagnostics
+        if not new_config.settings.python.analysis then new_config.settings.python.analysis = {} end
+        new_config.settings.python.analysis.extraPaths = {
+          vim.fn.fnamemodify(python_path, ":h:h") .. "/lib/site-packages"
+        }
+      elseif server_name == "pylsp" then
+        -- For python-lsp-server
+        if not new_config.settings then new_config.settings = {} end
+        if not new_config.settings.pylsp then new_config.settings.pylsp = {} end
+        if not new_config.settings.pylsp.plugins then new_config.settings.pylsp.plugins = {} end
+        if not new_config.settings.pylsp.configurationSources then 
+          new_config.settings.pylsp.configurationSources = {} 
+        end
+        
+        new_config.cmd = { python_path, "-m", "pylsp" }
+      elseif server_name == "jedi_language_server" then
+        -- For jedi-language-server
+        if not new_config.init_options then new_config.init_options = {} end
+        new_config.init_options.pythonPath = python_path
+        new_config.cmd = { python_path, "-m", "jedi_language_server" }
+      elseif server_name == "ruff_lsp" then
+        -- For ruff-lsp
+        if not new_config.cmd then
+          new_config.cmd = { python_path, "-m", "ruff_lsp" }
+        else
+          new_config.cmd[1] = python_path
+        end
+      end
+      
+      -- Apply the updated config
+      lspconfig[server_name].setup(new_config)
+      
+      -- Now restart any running instances of this server
+      for _, client in ipairs(clients) do
+        if client.name == server_name then
+          vim.cmd("LspRestart " .. client.id)
+          restarted = true
+        end
+      end
+    end
+  end
+  
+  -- Let user know we've updated the LSP if any were restarted
+  if restarted then
+    vim.notify("Python LSP servers updated to use: " .. python_path, vim.log.levels.INFO)
+  end
+end
+
 -- Activate an environment
 function M.activate(env)
   if env.type == "venv" then
@@ -154,7 +230,21 @@ function M.activate(env)
     vim.env.VIRTUAL_ENV = env.path
     
     -- Update Python path for LSP
-    vim.g.python3_host_prog = M.get_python_path(env)
+    local python_path = M.get_python_path(env)
+    vim.g.python3_host_prog = python_path
+    
+    -- Restart Python LSP servers
+    M.restart_python_lsp(python_path)
+    
+    -- Apply sys.path changes by setting PYTHONPATH
+    -- This helps with import resolution
+    local site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/lib/site-packages"
+    -- Get any existing PYTHONPATH
+    local existing_pythonpath = vim.env.PYTHONPATH or ""
+    -- Set the PYTHONPATH to include the site-packages directory
+    vim.env.PYTHONPATH = site_packages_path .. (existing_pythonpath ~= "" and (":" .. existing_pythonpath) or "")
+    
+    return true
   elseif env.type == "conda" and M.is_conda_available() then
     -- For conda environments
     local conda_prefix = env.path
@@ -166,12 +256,40 @@ function M.activate(env)
     vim.env.CONDA_PREFIX = conda_prefix
     
     -- Update Python path for LSP
-    vim.g.python3_host_prog = M.get_python_path(env)
+    local python_path = M.get_python_path(env)
+    vim.g.python3_host_prog = python_path
+    
+    -- Restart Python LSP servers
+    M.restart_python_lsp(python_path)
+    
+    -- Apply sys.path changes by setting PYTHONPATH
+    -- This helps with import resolution
+    local site_packages_path
+    if vim.fn.has("win32") == 1 then
+      site_packages_path = conda_prefix .. "/Lib/site-packages"
+    else
+      site_packages_path = conda_prefix .. "/lib/python3.*/site-packages"
+      -- Expand the wildcard to get the actual path
+      local cmd = "ls -d " .. site_packages_path .. " 2>/dev/null || echo ''"
+      local handle = io.popen(cmd)
+      if handle then
+        site_packages_path = handle:read("*a"):gsub("%s+$", "")
+        handle:close()
+      end
+    end
+    
+    -- Only set PYTHONPATH if we found a valid site-packages path
+    if site_packages_path ~= "" then
+      -- Get any existing PYTHONPATH
+      local existing_pythonpath = vim.env.PYTHONPATH or ""
+      -- Set the PYTHONPATH to include the site-packages directory
+      vim.env.PYTHONPATH = site_packages_path .. (existing_pythonpath ~= "" and (":" .. existing_pythonpath) or "")
+    end
+    
+    return true
   else
     return false
   end
-  
-  return true
 end
 
 -- Deactivate an environment
@@ -188,8 +306,14 @@ function M.deactivate(env, previous_path)
     vim.env.CONDA_PREFIX = nil
   end
   
+  -- Clear PYTHONPATH
+  vim.env.PYTHONPATH = nil
+  
   -- Reset Python path
   vim.g.python3_host_prog = vim.fn.exepath("python3") or vim.fn.exepath("python") or "python"
+  
+  -- Restart LSP servers with default Python
+  M.restart_python_lsp(vim.g.python3_host_prog)
   
   return true
 end
