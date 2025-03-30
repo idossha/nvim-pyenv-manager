@@ -142,123 +142,70 @@ function M.detect_active()
   return nil
 end
 
+-- Restart Python LSP servers
 function M.restart_python_lsp(python_path)
   -- Check if nvim-lspconfig is available
-  local has_lspconfig = pcall(require, "lspconfig")
+  local has_lspconfig, _ = pcall(require, "lspconfig")
   if not has_lspconfig then
     return
   end
   
   -- Get a list of running LSP clients
-  local clients = vim.lsp.get_active_clients or vim.lsp.get_clients
-  local python_servers = {"pyright", "pylsp", "jedi_language_server", "ruff_lsp"}
+  local get_clients = vim.lsp.get_active_clients or vim.lsp.get_clients
+  local python_clients = get_clients({name = "pyright"})
   
-  -- Update LSP settings for each Python server
-  for _, server_name in ipairs(python_servers) do
-    -- Execute for each active client of this type
-    for _, client in ipairs(clients({ name = server_name })) do
-      if not client then
-        goto continue
-      end
-      
-      vim.notify("Updating " .. server_name .. " to use: " .. python_path, vim.log.levels.INFO)
-      
-      -- Update the client settings
-      if client.settings then
-        if server_name == "pyright" then
-          client.settings = vim.tbl_deep_extend('force', client.settings, { 
-            python = { 
-              pythonPath = python_path,
-              analysis = {
-                autoSearchPaths = true,
-                diagnosticMode = "workspace",
-                useLibraryCodeForTypes = true,
-                typeCheckingMode = "basic",
-                reportMissingImports = true,
-                reportMissingModuleSource = true,
-              }
-            } 
-          })
-        elseif server_name == "pylsp" then
-          client.settings = vim.tbl_deep_extend('force', client.settings, {
-            pylsp = {
-              plugins = {
-                jedi = {
-                  environment = python_path,
-                },
-              },
-            }
-          })
-        elseif server_name == "jedi_language_server" then
-          client.settings = vim.tbl_deep_extend('force', client.settings, {
-            jedi = {
-              environment = python_path,
-            }
-          })
-        end
-      else
-        -- Some clients store settings in config.settings instead
-        if not client.config then client.config = {} end
-        if not client.config.settings then client.config.settings = {} end
-        
-        if server_name == "pyright" then
-          client.config.settings = vim.tbl_deep_extend('force', client.config.settings, { 
-            python = { 
-              pythonPath = python_path,
-              analysis = {
-                autoSearchPaths = true,
-                diagnosticMode = "workspace",
-                useLibraryCodeForTypes = true,
-                typeCheckingMode = "basic",
-                reportMissingImports = true,
-                reportMissingModuleSource = true,
-              }
-            } 
-          })
-        elseif server_name == "pylsp" then
-          client.config.settings = vim.tbl_deep_extend('force', client.config.settings, {
-            pylsp = {
-              plugins = {
-                jedi = {
-                  environment = python_path,
-                },
-              },
-            }
-          })
-        elseif server_name == "jedi_language_server" then
-          client.config.settings = vim.tbl_deep_extend('force', client.config.settings, {
-            jedi = {
-              environment = python_path,
-            }
-          })
-        end
-      end
-      
-      -- Notify the client of configuration changes
-      client.notify('workspace/didChangeConfiguration', { settings = nil })
-      
-      ::continue::
-    end
+  if #python_clients == 0 then
+    vim.notify("No pyright LSP server running", vim.log.levels.WARN)
+    return
   end
   
-  -- Force reload of all Python files
-  vim.defer_fn(function()
-    -- Get all buffer numbers
-    local buffers = vim.api.nvim_list_bufs()
-    for _, bufnr in ipairs(buffers) do
-      -- Check if the buffer is loaded and is a Python file
-      if vim.api.nvim_buf_is_loaded(bufnr) then
-        local bufname = vim.api.nvim_buf_get_name(bufnr)
-        if bufname:match("%.py$") then
-          -- Request diagnostics for this buffer
-          if vim.lsp.buf_request_sync ~= nil then
-            vim.lsp.buf.document_highlight()
-            vim.diagnostic.show()
-          end
-        end
+  -- Update settings for pyright
+  for _, client in ipairs(python_clients) do
+    -- Create settings structure if it doesn't exist
+    client.config = client.config or {}
+    client.config.settings = client.config.settings or {}
+    client.config.settings.python = client.config.settings.python or {}
+    client.config.settings.python.analysis = client.config.settings.python.analysis or {}
+    
+    -- Update Python path
+    client.config.settings.python.pythonPath = python_path
+    
+    -- Set diagnostics mode to workspace 
+    client.config.settings.python.analysis.diagnosticMode = "workspace"
+    client.config.settings.python.analysis.reportMissingImports = true
+    client.config.settings.python.analysis.reportMissingModuleSource = true
+    client.config.settings.python.analysis.typeCheckingMode = "basic"
+    
+    -- Find site-packages path and add to extraPaths
+    local site_packages_path
+    if vim.fn.has("win32") == 1 then
+      site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/Lib/site-packages"
+    else
+      site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/lib/python3*/site-packages"
+      site_packages_path = vim.fn.glob(site_packages_path)
+      if site_packages_path == "" then
+        site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/lib/site-packages"
       end
     end
-  end, 1000) -- Wait 1 second for LSP to process configuration changes
+    
+    -- Add site-packages to extraPaths if it exists
+    if site_packages_path ~= "" and vim.fn.isdirectory(site_packages_path) == 1 then
+      client.config.settings.python.analysis.extraPaths = { site_packages_path }
+    end
+    
+    -- Notify LSP of configuration change
+    client.notify('workspace/didChangeConfiguration', { settings = nil })
+    
+    vim.notify("Updated pyright to use Python: " .. python_path, vim.log.levels.INFO)
+  end
+  
+  -- Enable diagnostics
+  vim.diagnostic.enable()
+  
+  -- Force refresh current buffer
+  vim.defer_fn(function()
+    vim.cmd("edit!")
+  end, 1000)
 end
 
 -- Activate an environment
@@ -281,11 +228,24 @@ function M.activate(env)
     
     -- Apply sys.path changes by setting PYTHONPATH
     -- This helps with import resolution
-    local site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/lib/site-packages"
-    -- Get any existing PYTHONPATH
-    local existing_pythonpath = vim.env.PYTHONPATH or ""
-    -- Set the PYTHONPATH to include the site-packages directory
-    vim.env.PYTHONPATH = site_packages_path .. (existing_pythonpath ~= "" and (":" .. existing_pythonpath) or "")
+    local site_packages_path
+    if vim.fn.has("win32") == 1 then
+      site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/Lib/site-packages"
+    else
+      site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/lib/python3*/site-packages"
+      site_packages_path = vim.fn.glob(site_packages_path)
+      if site_packages_path == "" then
+        site_packages_path = vim.fn.fnamemodify(python_path, ":h:h") .. "/lib/site-packages"
+      end
+    end
+    
+    -- Only set PYTHONPATH if we found a valid site-packages path
+    if site_packages_path ~= "" and vim.fn.isdirectory(site_packages_path) == 1 then
+      -- Get any existing PYTHONPATH
+      local existing_pythonpath = vim.env.PYTHONPATH or ""
+      -- Set the PYTHONPATH to include the site-packages directory
+      vim.env.PYTHONPATH = site_packages_path .. (existing_pythonpath ~= "" and (":" .. existing_pythonpath) or "")
+    end
     
     return true
   elseif env.type == "conda" and M.is_conda_available() then
@@ -311,18 +271,27 @@ function M.activate(env)
     if vim.fn.has("win32") == 1 then
       site_packages_path = conda_prefix .. "/Lib/site-packages"
     else
-      site_packages_path = conda_prefix .. "/lib/python3.*/site-packages"
-      -- Expand the wildcard to get the actual path
-      local cmd = "ls -d " .. site_packages_path .. " 2>/dev/null || echo ''"
+      -- Try to find the site-packages directory for this conda env
+      local cmd = "ls -d " .. conda_prefix .. "/lib/python*/site-packages 2>/dev/null || echo ''"
       local handle = io.popen(cmd)
       if handle then
         site_packages_path = handle:read("*a"):gsub("%s+$", "")
         handle:close()
       end
+      
+      -- Fallback if we couldn't find it with the command
+      if site_packages_path == "" then
+        site_packages_path = vim.fn.glob(conda_prefix .. "/lib/python*/site-packages")
+      end
+      
+      -- Last resort fallback
+      if site_packages_path == "" then
+        site_packages_path = conda_prefix .. "/lib/site-packages"
+      end
     end
     
     -- Only set PYTHONPATH if we found a valid site-packages path
-    if site_packages_path ~= "" then
+    if site_packages_path ~= "" and vim.fn.isdirectory(site_packages_path) == 1 then
       -- Get any existing PYTHONPATH
       local existing_pythonpath = vim.env.PYTHONPATH or ""
       -- Set the PYTHONPATH to include the site-packages directory
