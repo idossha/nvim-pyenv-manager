@@ -22,7 +22,6 @@ function M.setup(opts)
     vim.keymap.set("n", config.options.keymap_select, "<cmd>PyenvSelect<CR>", map_opts)
     
     -- Set the run script keymap with direct function call instead of command
-    -- This often works better for custom keymaps
     vim.keymap.set("n", config.options.keymap_run_script, function()
       M.run_script()
     end, map_opts)
@@ -158,6 +157,7 @@ function M.get_current_env()
   return M.current_env
 end
 
+-- Run the current Python script with the selected environment
 function M.run_script()
   -- Check if an environment is active
   if M.current_env == nil then
@@ -263,4 +263,4 @@ function M.run_script()
   end
 end
 
-  return M
+return M
