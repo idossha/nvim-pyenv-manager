@@ -45,7 +45,7 @@ M.options = {
   keymap_select = ",v",
   
   -- Default keymap for running Python scripts
-  keymap_run_script = ",r",
+  keymap_run_script = ",,",
   
   -- Auto-detect environment on startup
   auto_detect_on_start = true,
