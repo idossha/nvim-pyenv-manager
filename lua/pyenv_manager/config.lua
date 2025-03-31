@@ -1,6 +1,5 @@
 -- Configuration module for pyenv_manager
 local M = {}
-
 -- Default configuration
 M.options = {
   -- Search paths for virtual environments
@@ -61,7 +60,8 @@ M.options = {
     color = { fg = "#a9dc76" },  -- Green color
     section = "lualine_x", -- Where to show it
   },
-}
+} -- Fixed: Added closing curly brace here instead of 'end'
+
 -- Setup function to merge user config with defaults
 function M.setup(opts)
   if opts then
