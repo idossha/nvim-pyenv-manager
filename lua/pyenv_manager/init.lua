@@ -46,8 +46,7 @@ end
 function M.detect_active_env()
   local env = environments.detect_active()
   if env then
-    M.set_env_info(env)
-    vim.cmd("redrawstatus")
+    M.activate_env(env) -- activate the environment
   end
 end
 
