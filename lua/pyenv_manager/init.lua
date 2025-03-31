@@ -152,4 +152,72 @@ function M.get_current_env()
   return M.current_env
 end
 
+-- Run the current Python script with the selected environment
+function M.run_script()
+  -- Check if an environment is active
+  if M.current_env == nil then
+    vim.notify("No Python environment is active. Please select one first.", vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Get the current buffer's file path
+  local file_path = vim.fn.expand("%:p")
+  
+  -- Check if the current file is a Python file
+  if not file_path:match("%.py$") then
+    vim.notify("Current file is not a Python script.", vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Get the Python executable path
+  local python_path = environments.get_python_path(M.current_env)
+  if not python_path then
+    vim.notify("Could not determine Python executable path.", vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Save the file before running
+  vim.cmd("write")
+  
+  -- Create the command to run the script
+  local cmd = python_path .. " " .. vim.fn.shellescape(file_path)
+  
+  -- Determine how to run the command based on configuration
+  if config.options.run_in_terminal then
+    -- Run in a terminal buffer
+    vim.cmd("botright " .. config.options.terminal_height .. "split")
+    vim.cmd("terminal " .. cmd)
+    vim.cmd("startinsert")
+  else
+    -- Run using system() and display output
+    vim.notify("Running: " .. cmd, vim.log.levels.INFO)
+    
+    -- Create a callback to handle the command output
+    local on_exit = function(job_id, exit_code, _)
+      if exit_code == 0 then
+        vim.notify("Script executed successfully.", vim.log.levels.INFO)
+      else
+        vim.notify("Script execution failed with exit code: " .. exit_code, vim.log.levels.ERROR)
+      end
+    end
+    
+    -- Run the command asynchronously
+    vim.fn.jobstart(cmd, {
+      on_exit = on_exit,
+      stdout_buffered = true,
+      stderr_buffered = true,
+      on_stdout = function(_, data)
+        if data and #data > 1 then
+          vim.notify(table.concat(data, "\n"), vim.log.levels.INFO)
+        end
+      end,
+      on_stderr = function(_, data)
+        if data and #data > 1 then
+          vim.notify(table.concat(data, "\n"), vim.log.levels.ERROR)
+        end
+      end,
+    })
+  end
+end
+
 return M

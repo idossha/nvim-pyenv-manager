@@ -44,8 +44,15 @@ M.options = {
   -- Default keymap for environment selection
   keymap_select = ",v",
   
+  -- Default keymap for running Python scripts
+  keymap_run_script = ",r",
+  
   -- Auto-detect environment on startup
   auto_detect_on_start = true,
+  
+  -- Run script configuration
+  run_in_terminal = true,     -- Whether to run scripts in a terminal buffer
+  terminal_height = 15,       -- Height of the terminal window when running scripts
   
   -- Lualine configuration
   lualine = {
@@ -54,7 +61,6 @@ M.options = {
     color = { fg = "#a9dc76" },  -- Green color
     section = "lualine_x", -- Where to show it
   },
-}
 
 -- Setup function to merge user config with defaults
 function M.setup(opts)
