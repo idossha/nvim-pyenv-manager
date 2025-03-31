@@ -198,9 +198,37 @@ function M.run_script()
     -- Display environment info at the top of the terminal
     local env_info = file_path .. " Running with Python environment: " .. M.current_env.name .. " (" .. python_path .. ")"
     
-    -- Use clear command to ensure clean terminal and run the script
+    -- Create the terminal with clear command
     vim.cmd("terminal clear && echo '" .. env_info .. "' && " .. cmd)
-    vim.cmd("startinsert")
+    
+    -- Set up the terminal buffer options and mappings
+    vim.api.nvim_create_autocmd("TermOpen", {
+      pattern = "*",
+      callback = function()
+        -- Set buffer-local options for better navigation
+        vim.opt_local.number = true
+        vim.opt_local.relativenumber = true
+        
+        -- Start in normal mode instead of insert mode
+        vim.cmd("stopinsert")
+        
+        -- Map 'q' to close the terminal buffer
+        vim.api.nvim_buf_set_keymap(0, "n", "q", ":bdelete!<CR>", {
+          noremap = true,
+          silent = true,
+          desc = "Close terminal"
+        })
+        
+        -- Add a helpful message at the bottom of the terminal
+        vim.defer_fn(function()
+          local buf = vim.api.nvim_get_current_buf()
+          local line_count = vim.api.nvim_buf_line_count(buf)
+          vim.api.nvim_buf_set_lines(buf, line_count, line_count, false, 
+                                    {"", "-- Press 'q' to close this window --"})
+        end, 100) -- Small delay to ensure script has finished
+      end,
+      once = true  -- Only run for the next terminal open
+    })
   else
     -- Run using system() and display output
     vim.notify("Running with environment: " .. M.current_env.name, vim.log.levels.INFO)
@@ -233,5 +261,6 @@ function M.run_script()
       end,
     })
   end
+end
 
   return M
