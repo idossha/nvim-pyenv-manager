@@ -59,8 +59,8 @@ M.options = {
     icon = "󰆧 ", -- Python icon
     color = { fg = "#a9dc76" },  -- Green color
     section = "lualine_x", -- Where to show it
-  },
-} -- Fixed: Added closing curly brace here instead of 'end'
+  }
+}
 
 -- Setup function to merge user config with defaults
 function M.setup(opts)
