@@ -157,7 +157,6 @@ function M.get_current_env()
   return M.current_env
 end
 
--- Run the current Python script with the selected environment
 function M.run_script()
   -- Check if an environment is active
   if M.current_env == nil then
@@ -199,36 +198,26 @@ function M.run_script()
     local env_info = file_path .. " Running with Python environment: " .. M.current_env.name .. " (" .. python_path .. ")"
     
     -- Create the terminal with clear command
-    vim.cmd("terminal clear && echo '" .. env_info .. "' && " .. cmd)
+    vim.cmd("terminal clear && echo '" .. env_info .. "' && echo '-- Press q to close this window --' && " .. cmd)
     
-    -- Set up the terminal buffer options and mappings
-    vim.api.nvim_create_autocmd("TermOpen", {
-      pattern = "*",
-      callback = function()
-        -- Set buffer-local options for better navigation
-        vim.opt_local.number = true
-        vim.opt_local.relativenumber = true
-        
-        -- Start in normal mode instead of insert mode
-        vim.cmd("stopinsert")
-        
-        -- Map 'q' to close the terminal buffer
-        vim.api.nvim_buf_set_keymap(0, "n", "q", ":bdelete!<CR>", {
-          noremap = true,
-          silent = true,
-          desc = "Close terminal"
-        })
-        
-        -- Add a helpful message at the bottom of the terminal
-        vim.defer_fn(function()
-          local buf = vim.api.nvim_get_current_buf()
-          local line_count = vim.api.nvim_buf_line_count(buf)
-          vim.api.nvim_buf_set_lines(buf, line_count, line_count, false, 
-                                    {"", "-- Press 'q' to close this window --"})
-        end, 100) -- Small delay to ensure script has finished
-      end,
-      once = true  -- Only run for the next terminal open
+    -- Set up the terminal buffer options and mappings for this buffer
+    local buf = vim.api.nvim_get_current_buf()
+    
+    -- Set buffer-local options for better navigation
+    vim.opt_local.number = true
+    vim.opt_local.relativenumber = true
+    
+    -- Start in normal mode instead of insert mode
+    vim.cmd("stopinsert")
+    
+    -- Map 'q' to close the terminal buffer - use buf explicitly
+    vim.api.nvim_buf_set_keymap(buf, "n", "q", ":bdelete!<CR>", {
+      noremap = true,
+      silent = true,
+      desc = "Close terminal"
     })
+    
+    -- No need to add the message at the bottom - we'll show it at the top instead
   else
     -- Run using system() and display output
     vim.notify("Running with environment: " .. M.current_env.name, vim.log.levels.INFO)
@@ -262,5 +251,4 @@ function M.run_script()
     })
   end
 end
-
 return M
