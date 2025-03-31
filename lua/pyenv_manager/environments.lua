@@ -294,15 +294,57 @@ function M.activate(env)
     -- Update PATH
     vim.env.PATH = env_path .. (vim.fn.has("win32") == 1 and ";" or ":") .. vim.env.PATH
     vim.env.CONDA_PREFIX = conda_prefix
+    vim.env.CONDA_DEFAULT_ENV = vim.fn.fnamemodify(conda_prefix, ":t") -- Environment name
     
     -- Update Python path for LSP
     local python_path = M.get_python_path(env)
     vim.g.python3_host_prog = python_path
     
+    -- Check for conda activation scripts
+    local activate_d_path = conda_prefix .. "/etc/conda/activate.d"
+    if vim.fn.isdirectory(activate_d_path) == 1 then
+      local scripts = vim.fn.glob(activate_d_path .. "/*.sh", false, true)
+      for _, script_path in ipairs(scripts) do
+        -- Read script content to look for PYTHONPATH modifications
+        local file = io.open(script_path, "r")
+        if file then
+          local content = file:read("*all")
+          file:close()
+          
+          -- Look for SimNIBS specific path (or any PYTHONPATH export)
+          local simnibs_path = content:match("export PYTHONPATH=([^:]+)")
+          if simnibs_path then
+            -- Add this path to PYTHONPATH
+            local existing_pythonpath = vim.env.PYTHONPATH or ""
+            if existing_pythonpath ~= "" then
+              vim.env.PYTHONPATH = simnibs_path .. ":" .. existing_pythonpath
+            else
+              vim.env.PYTHONPATH = simnibs_path
+            end
+            vim.notify("Added custom path from activation script: " .. simnibs_path, vim.log.levels.INFO)
+          end
+        end
+      end
+    end
+    
+    -- Special case for SimNIBS environment
+    if env.name:match("simnibs") then
+      local simnibs_path = "/Users/idohaber/Applications/SimNIBS-4.5"
+      if vim.fn.isdirectory(simnibs_path) == 1 then
+        local existing_pythonpath = vim.env.PYTHONPATH or ""
+        if existing_pythonpath ~= "" then
+          vim.env.PYTHONPATH = simnibs_path .. ":" .. existing_pythonpath
+        else
+          vim.env.PYTHONPATH = simnibs_path
+        end
+        vim.notify("Added SimNIBS path: " .. simnibs_path, vim.log.levels.INFO)
+      end
+    end
+    
     -- Restart Python LSP servers
     M.restart_python_lsp(python_path)
     
-    -- Apply sys.path changes by setting PYTHONPATH
+    -- Apply sys.path changes by setting PYTHONPATH for site-packages too
     -- This helps with import resolution
     local site_packages_path
     if vim.fn.has("win32") == 1 then
@@ -323,7 +365,7 @@ function M.activate(env)
       -- Get any existing PYTHONPATH
       local existing_pythonpath = vim.env.PYTHONPATH or ""
       -- Set the PYTHONPATH to include the site-packages directory
-      vim.env.PYTHONPATH = site_packages_path .. (existing_pythonpath ~= "" and (":" .. existing_pythonpath) or "")
+      vim.env.PYTHONPATH = existing_pythonpath .. (existing_pythonpath ~= "" and (":" .. site_packages_path) or site_packages_path)
     end
     
     return true
@@ -331,7 +373,6 @@ function M.activate(env)
     return false
   end
 end
-
 -- Deactivate an environment
 function M.deactivate(env, previous_path)
   -- Restore previous PATH
