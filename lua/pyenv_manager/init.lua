@@ -189,12 +189,17 @@ function M.run_script()
   
   -- Determine how to run the command based on configuration
   if config.options.run_in_terminal then
+    -- Close any existing terminal buffers (optional)
+    vim.cmd("silent! bdelete! term:")
+    
     -- Run in a terminal buffer
     vim.cmd("botright " .. config.options.terminal_height .. "split")
     
     -- Display environment info at the top of the terminal
-    local env_info = "# Running with Python environment: " .. M.current_env.name .. " (" .. python_path .. ")"
-    vim.cmd("terminal echo '" .. env_info .. "' && echo '' && " .. cmd)
+    local env_info = file_path .. " Running with Python environment: " .. M.current_env.name .. " (" .. python_path .. ")"
+    
+    -- Use clear command to ensure clean terminal and run the script
+    vim.cmd("terminal clear && echo '" .. env_info .. "' && " .. cmd)
     vim.cmd("startinsert")
   else
     -- Run using system() and display output
@@ -228,5 +233,5 @@ function M.run_script()
       end,
     })
   end
-end
-return M
+
+  return M
