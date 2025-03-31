@@ -20,6 +20,7 @@ function M.setup(opts)
   if config.options.create_mappings then
     local map_opts = { noremap = true, silent = true }
     vim.keymap.set("n", config.options.keymap_select, "<cmd>PyenvSelect<CR>", map_opts)
+    vim.keymap.set("n", config.options.keymap_run_script, "<cmd>PyenvRunScript<CR>", map_opts)
   end
   
   -- Set up autocommands
