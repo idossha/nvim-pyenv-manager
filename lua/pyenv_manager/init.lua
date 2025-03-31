@@ -20,7 +20,12 @@ function M.setup(opts)
   if config.options.create_mappings then
     local map_opts = { noremap = true, silent = true }
     vim.keymap.set("n", config.options.keymap_select, "<cmd>PyenvSelect<CR>", map_opts)
-    vim.keymap.set("n", config.options.keymap_run_script, "<cmd>PyenvRunScript<CR>", map_opts)
+    
+    -- Set the run script keymap with direct function call instead of command
+    -- This often works better for custom keymaps
+    vim.keymap.set("n", config.options.keymap_run_script, function()
+      M.run_script()
+    end, map_opts)
   end
   
   -- Set up autocommands
@@ -153,7 +158,6 @@ function M.get_current_env()
   return M.current_env
 end
 
--- Run the current Python script with the selected environment
 function M.run_script()
   -- Check if an environment is active
   if M.current_env == nil then
@@ -187,11 +191,16 @@ function M.run_script()
   if config.options.run_in_terminal then
     -- Run in a terminal buffer
     vim.cmd("botright " .. config.options.terminal_height .. "split")
-    vim.cmd("terminal " .. cmd)
+    
+    -- Display environment info at the top of the terminal
+    local env_info = "# Running with Python environment: " .. M.current_env.name .. " (" .. python_path .. ")"
+    vim.cmd("terminal echo '" .. env_info .. "' && echo '' && " .. cmd)
     vim.cmd("startinsert")
   else
     -- Run using system() and display output
-    vim.notify("Running: " .. cmd, vim.log.levels.INFO)
+    vim.notify("Running with environment: " .. M.current_env.name, vim.log.levels.INFO)
+    vim.notify("Python path: " .. python_path, vim.log.levels.INFO)
+    vim.notify("Command: " .. cmd, vim.log.levels.INFO)
     
     -- Create a callback to handle the command output
     local on_exit = function(job_id, exit_code, _)
@@ -220,5 +229,4 @@ function M.run_script()
     })
   end
 end
-
 return M

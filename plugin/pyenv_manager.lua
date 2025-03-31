@@ -22,8 +22,6 @@ vim.api.nvim_create_user_command("PyenvInfo", function()
   require("pyenv_manager").show_info()
 end, { desc = "Show Python environment info" })
 
-
 vim.api.nvim_create_user_command("PyenvRunScript", function()
   require("pyenv_manager").run_script()
 end, { desc = "Run current Python script with selected environment" })
-
