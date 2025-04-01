@@ -150,7 +150,7 @@ function M.restart_python_lsp(python_path)
   end
   
   -- Get a list of running LSP clients
-  local clients = vim.lsp.get_active_clients or vim.lsp.get_clients
+  local clients = vim.lsp.get_clients or vim.lsp.get_clients
   local python_servers = {"pyright", "pylsp", "jedi_language_server", "ruff_lsp"}
   
   -- Update LSP settings for each Python server
